@@ -180,7 +180,11 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
   .chat { inset: 0; height: min(86dvh, 820px); margin: auto; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgb(0 0 0 / .25); }
 }
 html.chat-lock, html.chat-lock body { overflow: hidden; }
-.chat::backdrop { background: rgb(0 0 0 / .35); }
+/* 휴대폰: 대화창 바깥(반투명 키보드·도구 막대 뒤 포함)을 대화창과 같은 색으로 완전히 덮는다.
+   ::backdrop은 :root 변수를 물려받지 못하는 브라우저가 있어 색을 직접 쓴다. */
+.chat::backdrop { background: #f6f1e7; }
+@media (prefers-color-scheme: dark) { .chat::backdrop { background: #1c1a17; } }
+@media (min-width: 700px) { .chat::backdrop { background: rgb(0 0 0 / .35); } }
 .chat-head {
   display: flex; align-items: center; gap: 4px;
   padding: max(10px, env(safe-area-inset-top)) 10px 10px 16px; border-bottom: 1px solid var(--line);
