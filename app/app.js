@@ -102,7 +102,7 @@ function detailHTML(w, q) {
     return `<dt>${f}</dt><dd>${body}</dd>`;
   }).join('');
   const t = DATA.topics.find((t) => t.kind === w.kind && t.no === w.topic);
-  return `<div class="detail"><dl>${rows}</dl><div class="topic">${w.kind} · ${t.no}. ${esc(t.name)}</div></div>`;
+  return `<div class="detail"><dl>${rows}</dl><div class="detail-foot"><span class="topic">${w.kind} · ${t.no}. ${esc(t.name)}</span><button class="ask" type="button" data-ask="${w.id}">✦ Claude에게 묻기</button></div></div>`;
 }
 
 function gist(w) {
@@ -235,6 +235,8 @@ async function init() {
   $('#topics').innerHTML = `<button class="chip" data-topic="0">전체 주제</button>` +
     names.map(([no, name]) => `<button class="chip" data-topic="${no}">${esc(name)}</button>`).join('');
   bind();
+  window.vocab = DATA; // chat.js(Claude에게 묻기)가 사전 데이터를 쓴다
+  window.dispatchEvent(new Event('vocab:ready'));
   const w = readHash();
   render();
   if (w) goTo(w);

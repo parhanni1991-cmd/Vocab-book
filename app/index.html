@@ -43,6 +43,47 @@
     뜻풀이는 표준국어대사전을 따랐고, 예문은 직접 지은 문장입니다.
   </footer>
 
+  <button id="chat-fab" class="fab" type="button" hidden aria-label="Claude에게 묻기">✦ Claude에게 묻기</button>
+
+  <dialog id="chat" class="chat" aria-labelledby="chat-title">
+    <div class="chat-head">
+      <div class="chat-title">
+        <strong id="chat-title">Claude에게 묻기</strong>
+        <span id="chat-context" class="chat-context"></span>
+      </div>
+      <button id="chat-new" type="button" class="icon" title="새 대화" aria-label="새 대화">↺</button>
+      <button id="chat-settings" type="button" class="icon" title="설정" aria-label="설정">⚙</button>
+      <button id="chat-close" type="button" class="icon" title="닫기" aria-label="닫기">✕</button>
+    </div>
+
+    <section id="chat-setup" class="chat-setup" hidden>
+      <form id="chat-setup-form">
+        <h2>API 키 설정</h2>
+        <p id="chat-setup-msg" class="warn" role="alert" hidden></p>
+        <p>Claude Console(<a href="https://platform.claude.com/" target="_blank" rel="noopener">platform.claude.com</a>)의 <b>API Keys</b>에서 키를 만들어 붙여 넣으세요. Max 플랜의 월간 API 크레딧을 그 Console 조직에 연결해 두면 사용 요금이 크레딧에서 차감됩니다.</p>
+        <label>API 키
+          <input id="chat-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+        </label>
+        <label>모델
+          <select id="chat-model"></select>
+        </label>
+        <p class="fine">키는 이 기기의 브라우저에만 저장되고, Claude API(api.anthropic.com)에 요청할 때만 쓰입니다. 공용 기기에서는 사용 뒤 '키 지우기'를 눌러 주세요.</p>
+        <div class="row">
+          <button type="submit" class="primary">저장</button>
+          <button id="chat-forget" type="button" hidden>키 지우기</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="chat-log" class="chat-log" aria-live="polite"></div>
+    <div id="chat-quick" class="chat-quick"></div>
+    <form id="chat-form" class="chat-form">
+      <textarea id="chat-text" rows="1" placeholder="질문을 입력하세요" aria-label="질문"></textarea>
+      <button id="chat-send" type="submit">보내기</button>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
+  <script type="module" src="chat.js"></script>
 </body>
 </html>
