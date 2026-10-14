@@ -76,7 +76,7 @@ button { font: inherit; color: inherit; }
   font: inherit; outline: none; height: 100%;
 }
 .seg {
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(4, 1fr);
   margin-top: 10px; padding: 3px; gap: 3px;
   background: var(--surface-2); border-radius: 10px;
 }
@@ -133,6 +133,8 @@ button { font: inherit; color: inherit; }
 .kind { margin-left: auto; font-size: .72rem; font-weight: 600; border-radius: 6px; padding: 1px 7px; }
 .kind.h { color: var(--sino); background: var(--sino-soft); }
 .kind.g { color: var(--native); background: var(--native-soft); }
+.kind.u { color: var(--accent); background: var(--accent-soft); margin-left: auto; }
+.kind.u + .kind { margin-left: 4px; }
 .gist { margin: 2px 0 0; color: var(--muted); font-size: .93rem; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .card[data-open] .gist { display: none; }
 .detail { padding: 0 16px 14px; border-top: 1px dashed var(--line); margin-top: -2px; }
@@ -264,3 +266,29 @@ html.chat-mode, html.chat-mode body { height: 100%; overflow: hidden; overscroll
 }
 .chat-setup .row { display: flex; gap: 8px; }
 .chat-setup .row button:not(.primary) { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 16px; cursor: pointer; }
+
+/* 내 단어 */
+.mine-bar { margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.mine-bar p { margin: 0 0 10px; font-size: .9rem; color: var(--muted); }
+.mine-bar button { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 700; background: var(--accent); color: #fff; cursor: pointer; }
+.mine-bar button:disabled { opacity: .45; cursor: default; }
+@media (prefers-color-scheme: dark) { .mine-bar button { color: #1c1a17; } }
+.mine-bar textarea { display: block; width: 100%; min-height: 160px; margin-top: 10px; font: .8rem/1.5 ui-monospace, monospace; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.del { border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 999px; padding: 4px 12px; font-size: .82rem; cursor: pointer; margin-left: auto; }
+.del + .ask { margin-left: 0; }
+
+/* Claude 답의 '사전에 추가' 카드 */
+.suggest { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent); background: var(--accent-soft); }
+.suggest .sg-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.suggest .sg-head b { font: 700 1.05rem var(--serif); }
+.suggest .hj { color: var(--muted); font-family: var(--serif); }
+.suggest .pos { font-size: .72rem; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.suggest .sg-def { margin: 4px 0 2px; }
+.suggest .sg-meta { margin: 0; font-size: .74rem; color: var(--muted); }
+.suggest .sg-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.suggest .sg-add, .suggest .sg-view { border: 0; border-radius: 999px; padding: 6px 14px; font-weight: 700; font-size: .86rem; cursor: pointer; }
+.suggest .sg-add { background: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { .suggest .sg-add { color: #1c1a17; } }
+.suggest .sg-view { background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.suggest .sg-done { font-size: .86rem; font-weight: 600; color: var(--accent); }
+.suggest .sg-err { font-size: .8rem; color: var(--accent); }

@@ -111,6 +111,7 @@ function systemPrompt() {
 - [사전 항목]으로 받지 않은 표제어의 뜻을 설명하거나, 그 말로 예문을 쓰거나, 여러 말을 비교할 때는 먼저 get_entries로 항목을 확인하고 그 뜻풀이에 맞춘다.
 - 장면이나 느낌에 맞는 말을 찾을 때는 search_dictionary나 list_topic으로 후보를 찾은 뒤 고른다.
 - 필요한 항목은 한 번에 모아서 조회한다(get_entries는 최대 10개).
+- 이 사전에 없는 말의 뜻을 설명했다면, 답을 다 쓴 뒤 suggest_new_entry를 한 번 호출해 그 말의 사전 항목 초안을 제안한다. 사용자가 버튼을 눌러야 저장되므로 답에서 저장을 약속하지 않는다. 뜻풀이는 표준국어대사전처럼 간결하게, 예문은 장면이 있는 소설 문장으로 쓴다.
 
 사전 표제어 목록:
 ${index}`;
@@ -174,6 +175,28 @@ const TOOLS = [
     eager_input_streaming: true,
   },
 ];
+TOOLS.push({
+  name: 'suggest_new_entry',
+  description: '이 사전에 없는 말의 뜻을 설명했을 때, 그 말을 이 사전 형식의 항목 초안으로 제안한다. 화면에 "사전에 추가" 버튼이 나타나고 사용자가 눌러야 저장된다. 한 답에 한 번, 답을 다 쓴 뒤에 호출한다. 이미 사전에 있는 표제어에는 쓰지 않는다.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      word: { type: 'string', description: '표제어 기본형. 예: "퇴거하다", "윤슬". 명령형이나 활용형은 기본형으로 바꾼다.' },
+      hanja: { type: 'string', description: '한자어면 한자 표기(예: "退去"), 고유어면 빈 문자열' },
+      pos: { type: 'string', enum: ['명사', '동사', '형용사', '부사', '관형사', '감탄사'] },
+      kind: { type: 'string', enum: ['한자어', '고유어'] },
+      topic: { type: 'integer', minimum: 1, maximum: 6, description: TOPIC_NAMES },
+      hunum: { type: 'string', description: '한자어면 글자별 훈음(예: "退 물러날 퇴 · 去 갈 거"), 고유어면 빈 문자열' },
+      meaning: { type: 'string', description: '뜻풀이. 뜻이 여럿이면 "① … ② …" 형식' },
+      example: { type: 'string', description: '그 말을 쓴 소설 예문 한 문장' },
+      synonyms: { type: 'string', description: '유의어(쉼표로 구분). 없으면 빈 문자열' },
+      counterpart: { type: 'string', description: '한자어면 고유어 대응어, 고유어면 한자어 대응어(쉼표로 구분). 없으면 빈 문자열' },
+    },
+    required: ['word', 'hanja', 'pos', 'kind', 'topic', 'hunum', 'meaning', 'example', 'synonyms', 'counterpart'],
+    additionalProperties: false,
+  },
+  eager_input_streaming: true,
+});
 const MAX_STEPS = 6; // 한 질문에서 도구를 쓰며 주고받는 최대 횟수(마지막 회차는 도구 없이 답하게 한다)
 
 class ToolInputError extends Error {}
@@ -230,6 +253,35 @@ function runTool(name, input) {
     return {
       label: `항목 조회 · ${ws.join(', ')}`,
       text: found.map(([x, w]) => (w ? entryText(w) : `■ ${x}: 이 사전에 없는 표제어다.`)).join('\n\n'),
+    };
+  }
+  if (name === 'suggest_new_entry') {
+    const str = (k, max, required = true) => {
+      const v = input[k];
+      if (typeof v !== 'string' || v.length > max || (required && !v.trim())) throw new ToolInputError(`${k}는 ${required ? '1' : '0'}~${max}자 문자열이어야 한다.`);
+      return v.trim();
+    };
+    const word = str('word', 20);
+    if (!/^[가-힣 ]+$/.test(word)) throw new ToolInputError('word는 한글 표제어여야 한다.');
+    const { pos, kind, topic } = input;
+    if (!['명사', '동사', '형용사', '부사', '관형사', '감탄사'].includes(pos)) throw new ToolInputError('pos가 올바르지 않다.');
+    if (kind !== '한자어' && kind !== '고유어') throw new ToolInputError('kind는 "한자어" 또는 "고유어"여야 한다.');
+    if (!Number.isInteger(topic) || topic < 1 || topic > 6) throw new ToolInputError('topic은 1~6의 정수여야 한다.');
+    const existing = findWord(word);
+    if (existing && existing.word === word) {
+      return { label: `사전 항목 초안 · ${word} (이미 있음)`, text: `${word}는 이미 이 사전에 있는 표제어다. 초안을 보여 주지 않았다.` };
+    }
+    const fields = { 뜻: str('meaning', 400), 예문: str('example', 300) };
+    const hunum = str('hunum', 120, false), synonyms = str('synonyms', 120, false), counterpart = str('counterpart', 120, false);
+    if (kind === '한자어' && hunum) fields['훈음'] = hunum;
+    if (synonyms) fields['유의어'] = synonyms;
+    if (counterpart) fields[kind === '한자어' ? '고유어 대응' : '한자어 대응'] = counterpart;
+    fields['참고'] = 'Claude에게 물어보고 추가한 항목이다. 표준국어대사전과 대조하지 않았다.';
+    const entry = { word, hanja: kind === '한자어' ? str('hanja', 20, false) : '', pos, kind, topic, fields };
+    return {
+      label: `사전 항목 초안 · ${word}`,
+      text: '초안을 화면에 보여 주었다. 사용자가 "사전에 추가"를 눌러야 내 단어에 저장된다. 이 사실을 답에서 다시 말할 필요는 없다.',
+      suggest: entry,
     };
   }
   throw new ToolInputError(`알 수 없는 도구: ${name}`);
@@ -408,6 +460,40 @@ function setBusy(busy) {
   quick.hidden = busy || chat.history.length > 0;
 }
 
+// ── 사전에 없는 말: '＋ 사전에 추가' 카드 ───────────────────
+const suggestions = new Map();
+let suggestSeq = 0;
+function suggestCardHTML(entry) {
+  if (!entry.key) { entry.key = `s${++suggestSeq}`; suggestions.set(entry.key, entry); }
+  const t = vocab().topics.find((x) => x.kind === entry.kind && x.no === entry.topic);
+  const gist = entry.fields['뜻'].split(/\s(?=[②③④⑤⑥⑦⑧⑨⑩])/)[0].replace(/^①\s*/, '');
+  return `<div class="suggest" data-suggest="${entry.key}">
+    <div class="sg-head"><b>${esc(entry.word)}</b>${entry.hanja ? `<span class="hj">${esc(entry.hanja)}</span>` : ''}<span class="pos">${esc(entry.pos)}</span></div>
+    <p class="sg-def">${esc(gist)}</p>
+    <p class="sg-meta">${esc(entry.kind)} · ${t.no}. ${esc(t.name)} — 사전에 없는 말이라 항목 초안을 만들었습니다.</p>
+    <div class="sg-actions"><button type="button" class="sg-add" data-add-entry="${entry.key}">＋ 사전에 추가</button></div>
+  </div>`;
+}
+document.addEventListener('click', (e) => {
+  const add = e.target.closest('[data-add-entry]');
+  if (add) {
+    const entry = suggestions.get(add.dataset.addEntry);
+    if (!entry || !window.vocabAddCustom) return;
+    const { key, ...data } = entry;
+    const r = window.vocabAddCustom(data);
+    const box = add.closest('.sg-actions');
+    if (r.ok || r.reason === 'exists') {
+      box.innerHTML = `<span class="sg-done">${r.ok ? '✓ 내 단어에 추가했습니다' : '이미 사전에 있는 단어입니다'}</span>`
+        + `<button type="button" class="sg-view" data-view-entry="${r.id}">카드 보기</button>`;
+    } else {
+      box.insertAdjacentHTML('beforeend', `<span class="sg-err">${r.reason === 'storage' ? '이 기기에 저장하지 못했습니다(저장 공간 또는 사생활 보호 모드 확인).' : '항목 형식이 올바르지 않아 추가하지 못했습니다.'}</span>`);
+    }
+    return;
+  }
+  const view = e.target.closest('[data-view-entry]');
+  if (view) { dlg.close(); window.vocabGoTo?.(view.dataset.viewEntry); }
+});
+
 async function ask(question) {
   question = question.trim();
   if (!question || chat.stream) return;
@@ -430,7 +516,8 @@ async function ask(question) {
   // 화면: 답 글과 도구 사용 줄을 차례로 보여 준다.
   const segments = [];
   const render = (thinking = false) => {
-    bubble.innerHTML = segments.map((sg) => (sg.tool ? `<p class="tool">📖 ${esc(sg.tool)}</p>` : renderMarkdown(sg.text))).join('')
+    bubble.innerHTML = segments.filter((sg) => !sg.suggest).map((sg) => (sg.tool ? `<p class="tool">📖 ${esc(sg.tool)}</p>` : renderMarkdown(sg.text))).join('')
+      + segments.filter((sg) => sg.suggest).map((sg) => suggestCardHTML(sg.suggest)).join('')
       + (thinking || !segments.length ? '<p class="thinking">생각하는 중…</p>' : '');
     log.scrollTop = log.scrollHeight;
   };
@@ -521,8 +608,8 @@ async function ask(question) {
       const results = toolUses.map((b) => {
         try {
           const r = runTool(b.name, b.input);
-          toolCalls += 1;
-          segments.push({ tool: r.label });
+          if (b.name !== 'suggest_new_entry') toolCalls += 1;
+          segments.push(r.suggest ? { suggest: r.suggest } : { tool: r.label });
           return { type: 'tool_result', tool_use_id: b.id, content: r.text };
         } catch (e) {
           if (!(e instanceof ToolInputError)) throw e;

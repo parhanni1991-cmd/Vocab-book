@@ -26,6 +26,7 @@
         <button role="tab" data-kind="">전체</button>
         <button role="tab" data-kind="한자어">한자어</button>
         <button role="tab" data-kind="고유어">고유어</button>
+        <button role="tab" data-kind="mine">내 단어</button>
       </div>
       <nav class="chips" aria-label="주제" id="topics"></nav>
     </div>
@@ -34,6 +35,11 @@
   <main class="wrap">
     <section id="today" class="today" hidden></section>
     <section id="intro" class="intro" hidden></section>
+    <section id="mine-bar" class="mine-bar" hidden>
+      <p>Claude에게 물어보고 추가한 단어입니다. <b>이 기기에만</b> 저장되므로, 사전에 정식으로 넣으려면 사전 형식으로 복사해 두세요.</p>
+      <button id="mine-export" type="button">사전 형식(Markdown)으로 복사</button>
+      <textarea id="mine-export-text" readonly hidden aria-label="사전 형식으로 내보낸 내 단어"></textarea>
+    </section>
     <p id="count" class="count" aria-live="polite"></p>
     <div id="list" class="list"></div>
     <p id="empty" class="empty" hidden>찾는 단어가 없습니다. 다른 말로 검색하거나 필터를 풀어 보세요.</p>
