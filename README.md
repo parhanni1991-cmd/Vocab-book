@@ -23,6 +23,26 @@
 | 5. 시간·계절 | [한자어/05-시간-계절.md](한자어/05-시간-계절.md) | [고유어/05-시간-계절.md](고유어/05-시간-계절.md) |
 | 6. 공간·분위기·감각 | [한자어/06-공간-분위기-감각.md](한자어/06-공간-분위기-감각.md) | [고유어/06-공간-분위기-감각.md](고유어/06-공간-분위기-감각.md) |
 
+## 앱으로 보기
+
+`app/` 폴더에 사전을 찾아보는 웹앱이 있다. 휴대폰과 PC 브라우저에서 열 수 있다.
+
+- **기능**: 한자어/고유어 구분과 주제별 보기, 검색(표제어·한자·뜻·예문·유의어·대응어), 초성 검색(예: `ㄱㄱㅎㄷ` → 괴괴하다), 대응어를 눌러 해당 단어로 이동하기, 오늘의 단어.
+- **앱처럼 쓰기**: 휴대폰 브라우저 메뉴의 '홈 화면에 추가'를 누르면 아이콘이 생긴다. 한 번 연 뒤에는 오프라인에서도 열린다.
+- **배포 주소**: https://parhanni1991-cmd.github.io/Vocab-book/ (GitHub Pages)
+  - 처음 한 번은 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 바꿔야 한다.
+  - 이후에는 저장소의 기본 브랜치에 push할 때마다 자동으로 배포된다(`.github/workflows/pages.yml`).
+- **내 컴퓨터에서 열기**: `python3 -m http.server -d app` 실행 후 http://localhost:8000 접속.
+
+### 사전을 고친 뒤
+
+앱은 Markdown 파일이 아니라 거기서 만든 `app/words.json`을 읽는다. 사전 파일을 고쳤다면 다음을 실행하고 함께 커밋한다.
+
+```bash
+python3 scripts/build_data.py          # app/words.json 다시 만들기
+python3 scripts/build_data.py --check  # 최신인지 확인
+```
+
 ## 항목 읽는 법 (범례)
 
 ### 한자어 항목

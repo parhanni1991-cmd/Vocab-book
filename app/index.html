@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>어휘 사전</title>
+  <meta name="description" content="소설 집필을 위한 한자어·고유어 어휘 사전">
+  <meta name="theme-color" content="#f6f1e7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1 class="title">어휘 사전 <small>한자어 · 고유어</small></h1>
+      <label class="search">
+        <span class="sr-only">검색</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" autocomplete="off" spellcheck="false"
+               placeholder="단어·뜻·예문 검색 (초성: ㄱㄱㅎㄷ)">
+      </label>
+      <div class="seg" role="tablist" aria-label="구분" id="kinds">
+        <button role="tab" data-kind="">전체</button>
+        <button role="tab" data-kind="한자어">한자어</button>
+        <button role="tab" data-kind="고유어">고유어</button>
+      </div>
+      <nav class="chips" aria-label="주제" id="topics"></nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="today" class="today" hidden></section>
+    <section id="intro" class="intro" hidden></section>
+    <p id="count" class="count" aria-live="polite"></p>
+    <div id="list" class="list"></div>
+    <p id="empty" class="empty" hidden>찾는 단어가 없습니다. 다른 말로 검색하거나 필터를 풀어 보세요.</p>
+  </main>
+
+  <footer class="wrap foot">
+    뜻풀이는 표준국어대사전을 따랐고, 예문은 직접 지은 문장입니다.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
