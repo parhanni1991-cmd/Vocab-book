@@ -227,6 +227,19 @@ html.chat-mode, html.chat-mode body { height: 100%; overflow: hidden; overscroll
 .bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
 @media (prefers-color-scheme: dark) { .bubble.user { color: #1c1a17; } }
 .bubble.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+/* 대화창 맨 위 사전 항목 카드 */
+.bubble.entry { align-self: stretch; max-width: none; background: var(--surface); border: 1px solid var(--line); padding: 12px 16px; }
+.bubble.entry .ec-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+.bubble.entry .ec-word { font: 700 1.25rem/1.3 var(--serif); }
+.bubble.entry .hj { color: var(--muted); font-family: var(--serif); }
+.bubble.entry .pos { font-size: .75rem; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+.bubble.entry .ec-dl { margin: 8px 0 0; display: grid; grid-template-columns: 5.2em 1fr; gap: 6px 10px; }
+.bubble.entry dt { font-size: .8rem; color: var(--muted); padding-top: 3px; }
+.bubble.entry dd { margin: 0; }
+.bubble.entry .senses { margin: 0; padding: 0; list-style: none; }
+.bubble.entry .ex { font-family: var(--serif); background: var(--surface-2); border-radius: 8px; padding: 6px 10px; }
+.bubble.entry .ec-topic { margin-top: 8px; font-size: .76rem; color: var(--muted); }
+@media (max-width: 380px) { .bubble.entry .ec-dl { grid-template-columns: 1fr; gap: 2px; } .bubble.entry dt { padding-top: 6px; } }
 .bubble.note { align-self: stretch; max-width: none; background: none; color: var(--muted); font-size: .9rem; padding: 4px 2px; }
 .bubble.error { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .bubble .meta { margin-top: 8px; font-size: .74rem; color: var(--muted); }

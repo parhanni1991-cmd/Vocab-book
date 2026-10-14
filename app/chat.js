@@ -410,13 +410,33 @@ function showSetup(show, message = '') {
   }
 }
 
+/** 대화창 맨 위에 보여 줄 사전 항목 카드(Claude를 부르지 않는다). */
+const ENTRY_FIELDS = ['훈음', '뜻', '예문', '유의어', '고유어 대응', '한자어 대응', '참고'];
+function entryCardHTML(w) {
+  const t = vocab().topics.find((x) => x.kind === w.kind && x.no === w.topic);
+  const rows = ENTRY_FIELDS.filter((f) => w.fields[f]).map((f) => {
+    const v = w.fields[f];
+    let body = esc(v);
+    if (f === '뜻') {
+      const senses = v.split(/\s(?=[①②③④⑤⑥⑦⑧⑨⑩])/);
+      if (senses.length > 1) body = `<ol class="senses">${senses.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>`;
+    } else if (f === '예문') body = `<div class="ex">${esc(v)}</div>`;
+    return `<dt>${f}</dt><dd>${body}</dd>`;
+  }).join('');
+  return `<div class="ec-head"><b class="ec-word">${esc(w.word)}</b>${w.hanja ? `<span class="hj">${esc(w.hanja)}</span>` : ''}`
+    + `<span class="pos">${esc(w.pos)}</span></div>`
+    + `<dl class="ec-dl">${rows}</dl>`
+    + `<p class="ec-topic">${esc(w.kind)} · ${t.no}. ${esc(t.name)}${w.custom ? ' · 내 단어' : ''}</p>`;
+}
+
 function resetConversation() {
   if (chat.stream) chat.stream.abort();
   chat.history = []; chat.given = new Set();
   log.innerHTML = '';
   const w = currentWord();
+  if (w) addBubble('entry', entryCardHTML(w));
   addBubble('note', w
-    ? `<p><strong>${esc(wordLabel(w))}</strong>에 대해 무엇이든 물어보세요. 사전 항목을 함께 보내서 답의 기준으로 삼게 합니다.</p>`
+    ? `<p><strong>${esc(wordLabel(w))}</strong>에 대해 무엇이든 물어보세요. 위 사전 항목을 함께 보내서 답의 기준으로 삼게 합니다.</p>`
     : '<p>사전에 있는 단어나 글쓰기 표현에 대해 물어보세요.</p>');
   renderHeader(); renderQuick();
 }
