@@ -4,9 +4,9 @@ import Anthropic from './vendor/anthropic-sdk.js';
 
 const MODELS = {
   'claude-opus-5-5': 'Claude Opus 5.5 — 깊이 있는 답 (기본)',
-  'claude-haiku-5-5': 'Claude Haiku 5.5 — 빠르고 저렴',
+  'claude-sonnet-5-5': 'Claude Sonnet 5.5 — 빠르고 균형 잡힌 답',
 };
-const MODEL_SHORT = { 'claude-opus-5-5': 'Opus 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
+const MODEL_SHORT = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5' };
 const DEFAULT_MODEL = 'claude-opus-5-5';
 // 노력 수준: 생각의 깊이와 토큰 사용량을 정한다. 생각에 쓴 토큰도 출력 요금에 포함된다.
 const EFFORTS = {
@@ -16,7 +16,12 @@ const EFFORTS = {
 };
 const DEFAULT_EFFORT = 'low';
 const LS = { key: 'vocab.apiKey', model: 'vocab.model', effort: 'vocab.effort', limit: 'vocab.limit', spend: 'vocab.spend' };
-const currentModel = () => { const m = store.get(LS.model); return Object.hasOwn(MODELS, m ?? '') ? m : DEFAULT_MODEL; };
+const currentModel = () => {
+  let m = store.get(LS.model);
+  // 예전에 고를 수 있던 Haiku를 골라 둔 경우 그 자리를 대신하는 Sonnet으로 옮긴다.
+  if (m === 'claude-haiku-5-5') { m = 'claude-sonnet-5-5'; store.set(LS.model, m); }
+  return Object.hasOwn(MODELS, m ?? '') ? m : DEFAULT_MODEL;
+};
 const currentEffort = () => { const e = store.get(LS.effort); return Object.hasOwn(EFFORTS, e ?? "") ? e : DEFAULT_EFFORT; };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -34,7 +39,7 @@ const store = {
 // 1M 토큰당 달러(입력·출력·캐시 읽기·캐시 쓰기). 표에 없는 모델(거절 시 대체 모델 등)은 높게 잡는다.
 const PRICES = {
   'claude-opus-5-5': { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
-  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  'claude-sonnet-5-5': { in: 2, out: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 };
 const UNKNOWN_PRICE = { in: 5, out: 25, cacheRead: 0.5, cacheWrite: 6.25 };
 const DEFAULT_LIMIT = 100;   // Max 5x 월간 API 크레딧
@@ -471,11 +476,9 @@ async function ask(question) {
       };
       // 마지막 회차에는 도구를 더 쓰지 말고 지금까지 찾은 것으로 답하게 한다.
       if (step === MAX_STEPS - 1) params.tool_choice = { type: 'none' };
-      if (model === 'claude-opus-5-5') {
-        // 안전 분류기가 거절하면 서버가 권장 모델로 다시 시도한다.
-        params.betas = ['server-side-fallback-2026-07-01'];
-        params.fallbacks = 'default';
-      }
+      // 안전 분류기가 거절하면 서버가 권장 모델로 다시 시도한다(Opus 5.5·Sonnet 5.5 모두 'default' 형식 지원).
+      params.betas = ['server-side-fallback-2026-07-01'];
+      params.fallbacks = 'default';
 
       const seg = { text: '' };
       segments.push(seg);
