@@ -14,7 +14,7 @@ const EFFORTS = {
   high: { label: '높음 — 깊이 생각, 느리고 비쌈', short: '높음' },
 };
 const DEFAULT_EFFORT = 'low';
-const LS = { key: 'vocab.apiKey', model: 'vocab.model', effort: 'vocab.effort' };
+const LS = { key: 'vocab.apiKey', model: 'vocab.model', effort: 'vocab.effort', limit: 'vocab.limit', spend: 'vocab.spend' };
 const currentEffort = () => { const e = store.get(LS.effort); return Object.hasOwn(EFFORTS, e ?? "") ? e : DEFAULT_EFFORT; };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -27,6 +27,41 @@ const store = {
   set(k, v) { memStore[k] = v; try { localStorage.setItem(k, v); } catch { /* 메모리에만 보관 */ } },
   del(k) { delete memStore[k]; try { localStorage.removeItem(k); } catch { /* 무시 */ } },
 };
+
+// ── 월 사용 한도 ─────────────────────────────────────────
+// 1M 토큰당 달러(입력·출력·캐시 읽기·캐시 쓰기). 표에 없는 모델(거절 시 대체 모델 등)은 높게 잡는다.
+const PRICES = {
+  'claude-opus-5-5': { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+};
+const UNKNOWN_PRICE = { in: 5, out: 25, cacheRead: 0.5, cacheWrite: 6.25 };
+const DEFAULT_LIMIT = 100;   // Max 5x 월간 API 크레딧
+const MAX_OUTPUT = 8000;     // 평소 답의 최대 길이(토큰)
+const MIN_OUTPUT = 1000;     // 한도가 이보다 적게 남으면 새 질문을 받지 않는다
+
+const priceOf = (model) => PRICES[model] || UNKNOWN_PRICE;
+const monthKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+function spentThisMonth() {
+  try { const r = JSON.parse(store.get(LS.spend) || 'null'); return r && r.month === monthKey() ? r.usd : 0; } catch { return 0; }
+}
+function addSpend(usd) { store.set(LS.spend, JSON.stringify({ month: monthKey(), usd: spentThisMonth() + usd })); }
+/** 빈칸이나 0은 한도 없음(Infinity). 한 번도 정하지 않았으면 기본값. */
+function monthlyLimit() {
+  const v = store.get(LS.limit);
+  if (v === null) return DEFAULT_LIMIT;
+  const n = Number(v);
+  return n > 0 ? n : Infinity;
+}
+function costOf(model, u) {
+  const p = priceOf(model);
+  return (u.input_tokens * p.in + u.output_tokens * p.out
+    + (u.cache_read_input_tokens || 0) * p.cacheRead + (u.cache_creation_input_tokens || 0) * p.cacheWrite) / 1e6;
+}
+const usd = (n) => '$' + (n > 0 && n < 0.01 ? n.toFixed(4) : n.toFixed(2));
+function usageText() {
+  const lim = monthlyLimit();
+  return `이번 달 ${usd(spentThisMonth())}` + (Number.isFinite(lim) ? ` / ${usd(lim)}` : ' (한도 없음)');
+}
 
 // ── 대화 상태 ────────────────────────────────────────────
 const chat = {
@@ -117,7 +152,7 @@ function currentWord() { return chat.wordId ? vocab().words.find((w) => w.id ===
 
 function renderHeader() {
   const w = currentWord();
-  $('#chat-context').textContent = w ? wordLabel(w) : '사전 전체';
+  $('#chat-context').textContent = `${w ? wordLabel(w) : '사전 전체'} · ${usageText()}`;
 }
 
 function renderQuick() {
@@ -164,6 +199,9 @@ function showSetup(show, message = '') {
     $('#chat-key').value = store.get(LS.key) || '';
     $('#chat-model').value = store.get(LS.model) || DEFAULT_MODEL;
     $('#chat-effort').value = currentEffort();
+    const lim = monthlyLimit();
+    $('#chat-limit').value = Number.isFinite(lim) ? lim : '';
+    $('#chat-usage').textContent = `${usageText()} (추정)`;
     $('#chat-forget').hidden = !store.get(LS.key);
     $('#chat-key').focus();
   }
@@ -200,7 +238,7 @@ function errorMessage(err) {
   if (err instanceof Anthropic.PermissionDeniedError) return '이 API 키로는 요청할 권한이 없습니다. Console에서 키의 권한을 확인해 주세요.';
   if (err instanceof Anthropic.RateLimitError) return '요청이 많아 잠시 제한되었습니다. 조금 뒤에 다시 시도해 주세요.';
   if (err instanceof Anthropic.BadRequestError) {
-    if (/credit balance/i.test(err.message)) return 'API 크레딧이 부족합니다. Console에서 크레딧 잔액(또는 Max 플랜 월간 크레딧 연결)을 확인해 주세요.';
+    if (/credit balance/i.test(err.message)) return 'API 크레딧을 다 써서 더 이상 답할 수 없습니다. 크레딧이 다시 채워지면(다음 결제 주기) 다시 쓸 수 있습니다. 잔액은 Console의 Billing에서 확인하세요.';
     return `요청을 처리하지 못했습니다: ${err.message}`;
   }
   if (err instanceof Anthropic.InternalServerError) return 'Claude 서버가 일시적으로 응답하지 않습니다. 잠시 뒤 다시 시도해 주세요.';
@@ -230,9 +268,28 @@ async function ask(question) {
 
   const model = store.get(LS.model) || DEFAULT_MODEL;
   const effort = currentEffort();
+
+  // 남은 한도로 쓸 수 있는 만큼만 답하게 max_tokens를 줄인다. 한도에 이르면 답이 그 자리에서 끊긴다.
+  const lim = monthlyLimit();
+  let maxTokens = MAX_OUTPUT;
+  if (Number.isFinite(lim)) {
+    const price = priceOf(model);
+    // 입력 토큰은 글자 수로 넉넉하게 어림한다(한국어는 대개 글자당 1토큰 이하).
+    const inputEstimate = systemPrompt().length + JSON.stringify(chat.history).length;
+    const left = lim - spentThisMonth() - inputEstimate * price.in / 1e6;
+    maxTokens = Math.min(MAX_OUTPUT, Math.floor(left / (price.out / 1e6)));
+    if (maxTokens < MIN_OUTPUT) {
+      rollback();
+      bubble.classList.add('error');
+      bubble.innerHTML = `<p>이번 달 사용 한도(${usd(lim)})에 도달해 더 이상 질문을 보내지 않습니다.</p>`
+        + `<p class="meta">${esc(usageText())} (추정) · 설정에서 한도를 올리거나 다음 달에 다시 이용해 주세요.</p>`;
+      setBusy(false);
+      return;
+    }
+  }
   const params = {
     model,
-    max_tokens: 8000,
+    max_tokens: maxTokens,
     system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
     messages: chat.history,
     output_config: { effort },
@@ -244,8 +301,11 @@ async function ask(question) {
   }
 
   let text = '';
+  let stream = null;
+  let charged = false;
+  const charge = (m) => { if (!charged && m?.usage) { charged = true; const c = costOf(m.model, m.usage); addSpend(c); return c; } return 0; };
   try {
-    const stream = client().beta.messages.stream(params);
+    stream = client().beta.messages.stream(params);
     chat.stream = stream;
     stream.on('streamEvent', (ev) => {
       // 모델이 바뀌는 지점(fallback 블록) 이전의 부분 답은 버린다.
@@ -258,6 +318,7 @@ async function ask(question) {
     });
     const msg = await stream.finalMessage();
 
+    const cost = charge(msg);
     if (msg.stop_reason === 'refusal') {
       rollback();
       bubble.classList.add('error');
@@ -266,11 +327,18 @@ async function ask(question) {
     }
     chat.history.push({ role: 'assistant', content: msg.content });
     bubble.innerHTML = renderMarkdown(text || '(빈 응답)');
-    if (msg.stop_reason === 'max_tokens') bubble.insertAdjacentHTML('beforeend', '<p class="meta">답이 길어 중간에 끊겼습니다. "계속"이라고 보내면 이어서 씁니다.</p>');
+    if (msg.stop_reason === 'max_tokens') {
+      bubble.insertAdjacentHTML('beforeend', maxTokens < MAX_OUTPUT
+        ? '<p class="meta warn">이번 달 사용 한도에 거의 도달해 답이 중간에 끊겼습니다.</p>'
+        : '<p class="meta">답이 길어 중간에 끊겼습니다. "계속"이라고 보내면 이어서 씁니다.</p>');
+    }
     const u = msg.usage;
     const inTok = u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(msg.model)} · 노력 ${EFFORTS[effort].short} · 입력 ${inTok.toLocaleString()} · 출력 ${u.output_tokens.toLocaleString()} 토큰</p>`);
+    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(msg.model)} · 노력 ${EFFORTS[effort].short} · 입력 ${inTok.toLocaleString()} · 출력 ${u.output_tokens.toLocaleString()} 토큰 · 약 ${usd(cost)}</p>`);
   } catch (err) {
+    // 중지·끊김으로 받다 만 답도 요금이 나오므로, 받은 만큼(보이지 않는 생각 토큰은 어림) 사용액에 더한다.
+    const partialMsg = stream?.currentMessage;
+    if (partialMsg) charge({ model: partialMsg.model, usage: { ...partialMsg.usage, output_tokens: Math.max(partialMsg.usage.output_tokens, text.length) } });
     rollback(); // 실패한 질문은 대화 기록에서 뺀다
     const partial = text ? renderMarkdown(text) : '';
     bubble.classList.add('error');
@@ -278,6 +346,7 @@ async function ask(question) {
     if (err instanceof Anthropic.AuthenticationError) showSetup(true, errorMessage(err));
   } finally {
     chat.stream = null;
+    renderHeader();
     setBusy(false);
     if (setup.hidden) input.focus();
   }
@@ -320,8 +389,17 @@ $('#chat-setup-form').addEventListener('submit', (e) => {
   store.set(LS.key, key);
   store.set(LS.model, $('#chat-model').value);
   store.set(LS.effort, $('#chat-effort').value);
+  const limitValue = $('#chat-limit').value.trim();
+  store.set(LS.limit, limitValue === '' ? '0' : String(Math.max(0, Number(limitValue) || 0)));
+  renderHeader();
   showSetup(false);
   input.focus();
+});
+$('#chat-reset-usage').addEventListener('click', () => {
+  if (!confirm('이번 달 사용액 기록을 0으로 되돌릴까요? (실제 크레딧 잔액은 바뀌지 않습니다)')) return;
+  store.del(LS.spend);
+  $('#chat-usage').textContent = `${usageText()} (추정)`;
+  renderHeader();
 });
 $('#chat-forget').addEventListener('click', () => {
   store.del(LS.key);
