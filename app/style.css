@@ -292,3 +292,14 @@ html.chat-mode, html.chat-mode body { height: 100%; overflow: hidden; overscroll
 .suggest .sg-view { background: var(--surface); color: var(--text); border: 1px solid var(--line); }
 .suggest .sg-done { font-size: .86rem; font-weight: 600; color: var(--accent); }
 .suggest .sg-err { font-size: .8rem; color: var(--accent); }
+
+/* 알림 */
+.toast {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 20;
+  transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+  max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px;
+  background: var(--text); color: var(--bg); font-size: .9rem; font-weight: 600;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .2); transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }

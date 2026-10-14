@@ -483,16 +483,32 @@ document.addEventListener('click', (e) => {
     const r = window.vocabAddCustom(data);
     const box = add.closest('.sg-actions');
     if (r.ok || r.reason === 'exists') {
+      // 대화창에는 결과를 남겨 두고(다시 열었을 때 보이게), 사전 화면으로 가서 그 단어를 보여 준다.
       box.innerHTML = `<span class="sg-done">${r.ok ? '✓ 내 단어에 추가했습니다' : '이미 사전에 있는 단어입니다'}</span>`
         + `<button type="button" class="sg-view" data-view-entry="${r.id}">카드 보기</button>`;
+      closeAndShow(r.id, r.ok
+        ? { mine: true, message: `‘${data.word}’${josa(data.word, '을', '를')} 내 단어에 추가했습니다` }
+        : { message: `‘${data.word}’${josa(data.word, '은', '는')} 이미 사전에 있습니다` });
     } else {
       box.insertAdjacentHTML('beforeend', `<span class="sg-err">${r.reason === 'storage' ? '이 기기에 저장하지 못했습니다(저장 공간 또는 사생활 보호 모드 확인).' : '항목 형식이 올바르지 않아 추가하지 못했습니다.'}</span>`);
     }
     return;
   }
   const view = e.target.closest('[data-view-entry]');
-  if (view) { dlg.close(); window.vocabGoTo?.(view.dataset.viewEntry); }
+  if (view) closeAndShow(view.dataset.viewEntry);
 });
+
+/** 받침 유무에 따라 조사를 고른다(예: 퇴거하다 → '를', 적막 → '을'). */
+function josa(word, withFinal, withoutFinal) {
+  const c = word.charCodeAt(word.length - 1) - 0xac00;
+  return c >= 0 && c < 11172 && c % 28 ? withFinal : withoutFinal;
+}
+/** 대화창을 닫은 뒤(휴대폰 대화 화면 모드가 풀리고 스크롤이 복원된 다음) 사전 화면에서 단어를 보여 준다. */
+let afterClose = null;
+function closeAndShow(id, opts = {}) {
+  afterClose = () => window.vocabShowWord?.(id, opts);
+  dlg.close();
+}
 
 async function ask(question) {
   question = question.trim();
@@ -668,6 +684,7 @@ dlg.addEventListener('cancel', (e) => { if (!modeMenu.hidden) { e.preventDefault
 dlg.addEventListener('close', () => {
   if (chat.stream) chat.stream.abort();
   exitChatMode();
+  if (afterClose) { const run = afterClose; afterClose = null; requestAnimationFrame(run); }
 });
 
 // ── 휴대폰: 대화 화면 모드 ─────────────────────────────────

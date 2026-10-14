@@ -267,6 +267,28 @@ async function exportCustom() {
   }
 }
 
+/** 단어 카드로 이동해 펼친다. mine이면 '내 단어' 탭에서 보여 준다. message가 있으면 알림을 띄운다. */
+function showWord(id, { mine = false, message = '' } = {}) {
+  const w = DATA.words.find((x) => x.id === id);
+  if (!w) return;
+  if (mine && w.custom) { state.q = ''; state.kind = 'mine'; state.topic = 0; writeHash(); }
+  goTo(id);
+  if (message) toast(message);
+}
+let toastTimer = null;
+function toast(message) {
+  let el = $('#toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
 // ── 상태 ↔ URL 해시 ───────────────────────────────────
 function writeHash() {
   const p = new URLSearchParams();
@@ -348,6 +370,7 @@ async function init() {
   window.vocab = DATA; // chat.js(Claude에게 묻기)가 사전 데이터를 쓴다
   window.vocabAddCustom = addCustom;
   window.vocabGoTo = goTo;
+  window.vocabShowWord = showWord;
   window.dispatchEvent(new Event('vocab:ready'));
   const w = readHash();
   render();
