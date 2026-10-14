@@ -7,7 +7,6 @@ const SEARCH_FIELDS = ['뜻', '예문', '유의어', '고유어 대응', '한자
 
 const state = { q: '', kind: '', topic: 0, open: new Set() };
 let DATA = null;
-let byWord = new Map();
 
 // ── 유틸 ──────────────────────────────────────────────
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -70,35 +69,60 @@ function wordHTML(w, q) {
   return markAll(w.word, q);
 }
 
-/** 유의어·대응어 목록에서 사전에 있는 표제어를 링크로 바꾼다. */
-function linkify(text, selfId, q) {
-  return text.split(/(, | \/ )/).map((tok) => {
-    if (tok === ', ' || tok === ' / ') return esc(tok);
-    const m = tok.match(/^([가-힣]+)(.*)$/);
-    if (m) {
-      const target = byWord.get(m[1]) || byWord.get(m[1].replace(/하다$/, ''));
-      if (target && target.id !== selfId) {
-        return `<a class="xref" href="#w=${target.id}" data-go="${target.id}">${markAll(m[1], q)}</a>${markAll(m[2], q)}`;
-      }
+// ── 본문 속 표제어 링크 ────────────────────────────────
+// 표제어는 그대로, '-하다' 말은 어간 뒤에 하/한/할/함/해/히/했이 올 때, 다른 용언은 '다'를 뺀 어간으로 찾는다.
+// 다른 낱말 속에 들어 있는 경우(예: '동정적' 속 '정적')는 앞 글자가 한글이면 건너뛴다.
+const HA_ENDINGS = '하한할함해히했';
+const LINK_STOP = new Set(['이내']); // 본문에서는 부사 '이내'(곧)와 헷갈려 링크하지 않는다(유의어·대응어 목록에서는 링크)
+const LINK_SKIP = ['주저앉']; // 표제어로 시작하지만 다른 낱말인 합성어
+let LINK_FORMS = [];
+function buildLinkForms() {
+  const forms = [];
+  for (const w of DATA.words) {
+    if (LINK_STOP.has(w.word)) { forms.push({ form: w.word, w, listOnly: true }); continue; }
+    if (w.word.endsWith('하다')) forms.push({ form: w.word.slice(0, -2), w, ha: true, inflect: true });
+    else if (w.word.endsWith('다') && /사$/.test(w.pos) && w.word.length >= 3) forms.push({ form: w.word.slice(0, -1), w, inflect: true });
+    else forms.push({ form: w.word, w });
+  }
+  LINK_FORMS = forms.sort((a, b) => b.form.length - a.form.length);
+}
+const isHangul = (ch) => ch >= '가' && ch <= '힣';
+
+/** 글 속의 사전 표제어를 찾아 링크로 바꾼 HTML을 만든다(검색어 강조 포함). isList: 유의어·대응어 목록 칸 */
+function linkText(text, selfId, q, isList = false) {
+  let out = '', plain = '', i = 0;
+  while (i < text.length) {
+    let hit = null;
+    if (!isHangul(text[i - 1] || '') && !LINK_SKIP.some((x) => text.startsWith(x, i))) {
+      hit = LINK_FORMS.find(({ form, w, ha, listOnly }) => w.id !== selfId && (isList || !listOnly) && text.startsWith(form, i)
+        && (!ha || HA_ENDINGS.includes(text[i + form.length] || '')));
     }
-    return markAll(tok, q);
-  }).join('');
+    if (hit) {
+      // 용언은 활용 어미까지(예: '괴괴함', '수척해져') 한 낱말로 링크한다.
+      let end = i + hit.form.length;
+      if (hit.inflect) while (end < text.length && isHangul(text[end])) end += 1;
+      out += markAll(plain, q); plain = '';
+      out += `<a class="xref" href="#w=${hit.w.id}" data-go="${hit.w.id}">${markAll(text.slice(i, end), q)}</a>`;
+      i = end;
+    } else { plain += text[i]; i += 1; }
+  }
+  return out + markAll(plain, q);
 }
 
-function sensesHTML(text, q) {
+function sensesHTML(text, selfId, q) {
   const parts = text.split(/\s(?=[①②③④⑤⑥⑦⑧⑨⑩])/);
-  if (parts.length === 1) return markAll(text, q);
-  return '<ol class="senses">' + parts.map((p) => `<li>${markAll(p, q)}</li>`).join('') + '</ol>';
+  if (parts.length === 1) return linkText(text, selfId, q);
+  return '<ol class="senses">' + parts.map((p) => `<li>${linkText(p, selfId, q)}</li>`).join('') + '</ol>';
 }
 
 function detailHTML(w, q) {
   const rows = FIELD_ORDER.filter((f) => w.fields[f]).map((f) => {
     const v = w.fields[f];
     let body;
-    if (f === '뜻') body = sensesHTML(v, q);
-    else if (f === '예문') body = `<div class="ex">${markAll(v, q)}</div>`;
-    else if (f === '유의어' || f.endsWith('대응')) body = linkify(v, w.id, q);
-    else body = markAll(v, q);
+    if (f === '뜻') body = sensesHTML(v, w.id, q);
+    else if (f === '예문') body = `<div class="ex">${linkText(v, w.id, q)}</div>`;
+    else if (f === '훈음') body = markAll(v, q);
+    else body = linkText(v, w.id, q, f === '유의어' || f.endsWith('대응'));
     return `<dt>${f}</dt><dd>${body}</dd>`;
   }).join('');
   const t = DATA.topics.find((t) => t.kind === w.kind && t.no === w.topic);
@@ -230,7 +254,7 @@ function bind() {
 async function init() {
   const res = await fetch('words.json');
   DATA = await res.json();
-  for (const w of DATA.words) if (!byWord.has(w.word)) byWord.set(w.word, w);
+  buildLinkForms();
   const names = [...new Map(DATA.topics.map((t) => [t.no, t.name])).entries()];
   $('#topics').innerHTML = `<button class="chip" data-topic="0">전체 주제</button>` +
     names.map(([no, name]) => `<button class="chip" data-topic="${no}">${esc(name)}</button>`).join('');

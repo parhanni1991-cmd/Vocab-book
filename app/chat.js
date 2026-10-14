@@ -99,6 +99,12 @@ function systemPrompt() {
 - 퀴즈를 낼 때는 정답을 함께 알려 주지 말고 사용자의 답을 기다린다.
 - 사전에 있는 단어를 추천할 때는 아래 표제어 목록에서 고른다.
 
+사전 도구:
+- 이 사전의 207개 항목 전체를 도구로 찾아볼 수 있다. search_dictionary(뜻·예문·유의어까지 검색), list_topic(주제별 목록), get_entries(항목 전체).
+- [사전 항목]으로 받지 않은 표제어의 뜻을 설명하거나, 그 말로 예문을 쓰거나, 여러 말을 비교할 때는 먼저 get_entries로 항목을 확인하고 그 뜻풀이에 맞춘다.
+- 장면이나 느낌에 맞는 말을 찾을 때는 search_dictionary나 list_topic으로 후보를 찾은 뒤 고른다.
+- 필요한 항목은 한 번에 모아서 조회한다(get_entries는 최대 10개).
+
 사전 표제어 목록:
 ${index}`;
   return SYSTEM;
@@ -117,6 +123,109 @@ function contextFor(question) {
   }
   const text = picks.length ? `[사전 항목]\n${picks.map(entryText).join('\n\n')}\n\n` : '';
   return { text, ids: picks.map((w) => w.id) };
+}
+
+// ── Claude가 쓰는 사전 도구 ────────────────────────────────
+const TOPIC_NAMES = '1 감정·심리, 2 인물·외모·성격, 3 동작·행위, 4 자연·풍경·날씨, 5 시간·계절, 6 공간·분위기·감각';
+const TOOLS = [
+  {
+    name: 'search_dictionary',
+    description: '이 사전(한자어 103개, 고유어 104개)에서 낱말을 찾는다. 표제어·한자·뜻풀이·유의어·대응어·예문·참고를 검색하므로 장면이나 느낌을 나타내는 말(예: "비", "쓸쓸", "새벽")로도 찾을 수 있다. 결과는 표제어와 첫 뜻풀이 목록(최대 15개)이다. 항목 전체는 get_entries로 본다.',
+    input_schema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: '찾을 말. 한 낱말이나 짧은 구절.' } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: 'list_topic',
+    description: `한 주제에 속한 표제어 전체를 첫 뜻풀이와 함께 보여 준다. 주제 번호: ${TOPIC_NAMES}.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['한자어', '고유어'] },
+        topic: { type: 'integer', minimum: 1, maximum: 6, description: TOPIC_NAMES },
+      },
+      required: ['kind', 'topic'],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: 'get_entries',
+    description: '표제어의 사전 항목 전체(품사, 한자와 훈음, 뜻풀이, 예문, 유의어, 대응어, 참고)를 가져온다. 한 번에 최대 10개.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        words: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10, description: '표제어 목록. 예: ["적막", "괴괴하다"]' },
+      },
+      required: ['words'],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+];
+const MAX_STEPS = 6; // 한 질문에서 도구를 쓰며 주고받는 최대 횟수(마지막 회차는 도구 없이 답하게 한다)
+
+class ToolInputError extends Error {}
+const gistOf = (w) => w.fields['뜻'].split(/\s(?=[②③④⑤⑥⑦⑧⑨⑩])/)[0].replace(/^①\s*/, '');
+function brief(w) {
+  const t = vocab().topics.find((t) => t.kind === w.kind && t.no === w.topic);
+  return `${w.word}${w.hanja ? `(${w.hanja})` : ''} · ${w.kind} ${t.no}. ${t.name} — ${gistOf(w)}`;
+}
+function findWord(name) {
+  const { words } = vocab();
+  const n = name.trim();
+  const stem = n.replace(/하다$/, '');
+  return words.find((w) => w.word === n) || words.find((w) => w.word === `${n}하다`)
+    || words.find((w) => stem.length >= 2 && w.word.replace(/하다$/, '') === stem);
+}
+
+/** 도구를 실행하고 { text: Claude에게 줄 결과, label: 화면에 보일 한 줄 }을 돌려준다. 입력이 틀리면 ToolInputError. */
+function runTool(name, input) {
+  const { words, topics } = vocab();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ToolInputError('입력은 객체여야 한다.');
+  if (name === 'search_dictionary') {
+    const q = input.query;
+    if (typeof q !== 'string' || !q.trim() || q.length > 50) throw new ToolInputError('query는 1~50자 문자열이어야 한다.');
+    const query = q.trim();
+    const scored = words.map((w) => {
+      let score = 0;
+      if (w.word.includes(query) || query.includes(w.word.replace(/하다$/, ''))) score += 5;
+      if (w.hanja && w.hanja.includes(query)) score += 4;
+      for (const [f, v] of Object.entries(w.fields)) {
+        if (!v.includes(query)) continue;
+        score += f === '뜻' ? 3 : f === '유의어' || f.endsWith('대응') ? 2 : 1;
+      }
+      return { w, score };
+    }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 15);
+    return {
+      label: `사전 검색 “${query}” · ${scored.length}개`,
+      text: scored.length ? scored.map((x) => brief(x.w)).join('\n') : `“${query}”와 맞는 항목이 없다. 다른 말로 찾거나 list_topic을 써 본다.`,
+    };
+  }
+  if (name === 'list_topic') {
+    const { kind, topic } = input;
+    if (kind !== '한자어' && kind !== '고유어') throw new ToolInputError('kind는 "한자어" 또는 "고유어"여야 한다.');
+    if (!Number.isInteger(topic) || topic < 1 || topic > 6) throw new ToolInputError('topic은 1~6의 정수여야 한다.');
+    const t = topics.find((x) => x.kind === kind && x.no === topic);
+    const list = words.filter((w) => w.kind === kind && w.topic === topic);
+    return { label: `주제 목록 · ${kind} ${topic}. ${t.name}`, text: `[${kind} ${topic}. ${t.name}] ${t.intro}\n${list.map(brief).join('\n')}` };
+  }
+  if (name === 'get_entries') {
+    const ws = input.words;
+    if (!Array.isArray(ws) || !ws.length || ws.length > 10 || !ws.every((x) => typeof x === 'string' && x.trim())) {
+      throw new ToolInputError('words는 표제어 문자열 1~10개의 배열이어야 한다.');
+    }
+    const found = ws.map((x) => [x, findWord(x)]);
+    return {
+      label: `항목 조회 · ${ws.join(', ')}`,
+      text: found.map(([x, w]) => (w ? entryText(w) : `■ ${x}: 이 사전에 없는 표제어다.`)).join('\n\n'),
+    };
+  }
+  throw new ToolInputError(`알 수 없는 도구: ${name}`);
 }
 
 // ── 간단한 마크다운 → HTML (이스케이프 후 굵게·목록·줄바꿈만) ──────────
@@ -258,9 +367,11 @@ async function ask(question) {
   if (!question || chat.stream) return;
   if (!store.get(LS.key)) { showSetup(true); return; }
 
+  const base = chat.history.length;
   const ctx = contextFor(question);
   chat.history.push({ role: 'user', content: ctx.text + question });
-  const rollback = () => { chat.history.pop(); ctx.ids.forEach((id) => chat.given.delete(id)); };
+  // 실패·거절·한도 초과로 끝난 질문은 대화 기록에서 통째로 뺀다(뒤에서 자르기만 하므로 기록은 append-only로 유지).
+  const rollback = () => { chat.history.length = base; ctx.ids.forEach((id) => chat.given.delete(id)); };
   addBubble('user', `<p>${esc(question).replace(/\n/g, '<br>')}</p>`);
   input.value = ''; autosize();
   const bubble = addBubble('assistant', '<p class="thinking">생각하는 중…</p>');
@@ -268,81 +379,133 @@ async function ask(question) {
 
   const model = store.get(LS.model) || DEFAULT_MODEL;
   const effort = currentEffort();
-
-  // 남은 한도로 쓸 수 있는 만큼만 답하게 max_tokens를 줄인다. 한도에 이르면 답이 그 자리에서 끊긴다.
   const lim = monthlyLimit();
-  let maxTokens = MAX_OUTPUT;
-  if (Number.isFinite(lim)) {
-    const price = priceOf(model);
-    // 입력 토큰은 글자 수로 넉넉하게 어림한다(한국어는 대개 글자당 1토큰 이하).
-    const inputEstimate = systemPrompt().length + JSON.stringify(chat.history).length;
-    const left = lim - spentThisMonth() - inputEstimate * price.in / 1e6;
-    maxTokens = Math.min(MAX_OUTPUT, Math.floor(left / (price.out / 1e6)));
-    if (maxTokens < MIN_OUTPUT) {
-      rollback();
-      bubble.classList.add('error');
-      bubble.innerHTML = `<p>이번 달 사용 한도(${usd(lim)})에 도달해 더 이상 질문을 보내지 않습니다.</p>`
-        + `<p class="meta">${esc(usageText())} (추정) · 설정에서 한도를 올리거나 다음 달에 다시 이용해 주세요.</p>`;
-      setBusy(false);
-      return;
-    }
-  }
-  const params = {
-    model,
-    max_tokens: maxTokens,
-    system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
-    messages: chat.history,
-    output_config: { effort },
+
+  // 화면: 답 글과 도구 사용 줄을 차례로 보여 준다.
+  const segments = [];
+  const render = (thinking = false) => {
+    bubble.innerHTML = segments.map((sg) => (sg.tool ? `<p class="tool">📖 ${esc(sg.tool)}</p>` : renderMarkdown(sg.text))).join('')
+      + (thinking || !segments.length ? '<p class="thinking">생각하는 중…</p>' : '');
+    log.scrollTop = log.scrollHeight;
   };
-  if (model === 'claude-opus-5-5') {
-    // 안전 분류기가 거절하면 서버가 권장 모델로 다시 시도한다.
-    params.betas = ['server-side-fallback-2026-07-01'];
-    params.fallbacks = 'default';
-  }
+  const fail = (html) => { bubble.classList.add('error'); segments.length = 0; bubble.innerHTML = html; };
 
-  let text = '';
-  let stream = null;
-  let charged = false;
-  const charge = (m) => { if (!charged && m?.usage) { charged = true; const c = costOf(m.model, m.usage); addSpend(c); return c; } return 0; };
+  let totalCost = 0, inTok = 0, outTok = 0, toolCalls = 0, lastModel = model;
+  let stream = null, charged = true, cappedStep = false, ended = false, lastStop = null;
+  const charge = (m) => {
+    if (charged || !m?.usage) return;
+    charged = true;
+    const c = costOf(m.model, m.usage);
+    addSpend(c); totalCost += c;
+    inTok += m.usage.input_tokens + (m.usage.cache_read_input_tokens || 0) + (m.usage.cache_creation_input_tokens || 0);
+    outTok += m.usage.output_tokens;
+  };
+
   try {
-    stream = client().beta.messages.stream(params);
-    chat.stream = stream;
-    stream.on('streamEvent', (ev) => {
-      // 모델이 바뀌는 지점(fallback 블록) 이전의 부분 답은 버린다.
-      if (ev.type === 'content_block_start' && ev.content_block.type === 'fallback') text = '';
-    });
-    stream.on('text', (delta) => {
-      text += delta;
-      bubble.innerHTML = renderMarkdown(text);
-      log.scrollTop = log.scrollHeight;
-    });
-    const msg = await stream.finalMessage();
+    for (let step = 0; step < MAX_STEPS && !ended; step += 1) {
+      // 남은 한도로 쓸 수 있는 만큼만 답하게 max_tokens를 줄인다. 한도에 이르면 답이 그 자리에서 끊긴다.
+      let maxTokens = MAX_OUTPUT;
+      if (Number.isFinite(lim)) {
+        const price = priceOf(model);
+        // 입력 토큰은 글자 수로 넉넉하게 어림한다(한국어는 대개 글자당 1토큰 이하).
+        const inputEstimate = systemPrompt().length + JSON.stringify(chat.history).length;
+        const left = lim - spentThisMonth() - inputEstimate * price.in / 1e6;
+        maxTokens = Math.min(MAX_OUTPUT, Math.floor(left / (price.out / 1e6)));
+        if (maxTokens < MIN_OUTPUT) {
+          rollback();
+          fail(`<p>이번 달 사용 한도(${usd(lim)})에 도달해 ${step ? '답을 마치지 못했습니다' : '더 이상 질문을 보내지 않습니다'}.</p>`
+            + `<p class="meta">${esc(usageText())} (추정) · 설정에서 한도를 올리거나 다음 달에 다시 이용해 주세요.</p>`);
+          return;
+        }
+      }
+      cappedStep = maxTokens < MAX_OUTPUT;
 
-    const cost = charge(msg);
-    if (msg.stop_reason === 'refusal') {
-      rollback();
-      bubble.classList.add('error');
-      bubble.innerHTML = '<p>이 질문에는 답할 수 없다는 응답을 받았습니다. 질문을 바꿔 다시 물어봐 주세요.</p>';
-      return;
+      const params = {
+        model,
+        max_tokens: maxTokens,
+        system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
+        messages: chat.history,
+        tools: TOOLS,
+        output_config: { effort },
+      };
+      // 마지막 회차에는 도구를 더 쓰지 말고 지금까지 찾은 것으로 답하게 한다.
+      if (step === MAX_STEPS - 1) params.tool_choice = { type: 'none' };
+      if (model === 'claude-opus-5-5') {
+        // 안전 분류기가 거절하면 서버가 권장 모델로 다시 시도한다.
+        params.betas = ['server-side-fallback-2026-07-01'];
+        params.fallbacks = 'default';
+      }
+
+      const seg = { text: '' };
+      segments.push(seg);
+      charged = false;
+      stream = client().beta.messages.stream(params);
+      chat.stream = stream;
+      stream.on('streamEvent', (ev) => {
+        // 모델이 바뀌는 지점(fallback 블록) 이전의 부분 답은 버린다.
+        if (ev.type === 'content_block_start' && ev.content_block.type === 'fallback') { seg.text = ''; render(true); }
+      });
+      stream.on('text', (delta) => { seg.text += delta; render(true); });
+      const msg = await stream.finalMessage();
+      charge(msg);
+      lastModel = msg.model;
+      lastStop = msg.stop_reason;
+      if (!seg.text) segments.splice(segments.indexOf(seg), 1);
+
+      if (msg.stop_reason === 'refusal') {
+        rollback();
+        fail('<p>이 질문에는 답할 수 없다는 응답을 받았습니다. 질문을 바꿔 다시 물어봐 주세요.</p>');
+        return;
+      }
+      const toolUses = msg.content.filter((b) => b.type === 'tool_use');
+      if (msg.stop_reason === 'max_tokens') {
+        if (toolUses.length) {
+          // 도구 호출이 잘린 채 끝났다: 실행하지 않고 이 질문을 기록에서 뺀다.
+          rollback();
+          render();
+          bubble.insertAdjacentHTML('beforeend', `<p class="meta warn">${cappedStep ? '이번 달 사용 한도에 거의 도달해' : '답이 길어'} 중간에 끊겼습니다. 이 질문은 대화 기록에서 뺐습니다.</p>`);
+          return;
+        }
+        chat.history.push({ role: 'assistant', content: msg.content });
+        ended = true;
+        break;
+      }
+      chat.history.push({ role: 'assistant', content: msg.content });
+      if (msg.stop_reason !== 'tool_use' || !toolUses.length) { ended = true; break; }
+
+      // 도구 실행: 입력을 직접 검증하고, 틀리면 실행하지 않고 오류 결과를 돌려준다.
+      const results = toolUses.map((b) => {
+        try {
+          const r = runTool(b.name, b.input);
+          toolCalls += 1;
+          segments.push({ tool: r.label });
+          return { type: 'tool_result', tool_use_id: b.id, content: r.text };
+        } catch (e) {
+          if (!(e instanceof ToolInputError)) throw e;
+          return { type: 'tool_result', tool_use_id: b.id, is_error: true, content: JSON.stringify({ INVALID_INPUT: b.input ?? null, error: e.message }) };
+        }
+      });
+      chat.history.push({ role: 'user', content: results });
+      render(true);
     }
-    chat.history.push({ role: 'assistant', content: msg.content });
-    bubble.innerHTML = renderMarkdown(text || '(빈 응답)');
-    if (msg.stop_reason === 'max_tokens') {
-      bubble.insertAdjacentHTML('beforeend', maxTokens < MAX_OUTPUT
+
+    render();
+    if (!segments.some((sg) => sg.text)) bubble.insertAdjacentHTML('beforeend', '<p>(빈 응답)</p>');
+    if (lastStop === 'max_tokens') {
+      bubble.insertAdjacentHTML('beforeend', cappedStep
         ? '<p class="meta warn">이번 달 사용 한도에 거의 도달해 답이 중간에 끊겼습니다.</p>'
         : '<p class="meta">답이 길어 중간에 끊겼습니다. "계속"이라고 보내면 이어서 씁니다.</p>');
     }
-    const u = msg.usage;
-    const inTok = u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(msg.model)} · 노력 ${EFFORTS[effort].short} · 입력 ${inTok.toLocaleString()} · 출력 ${u.output_tokens.toLocaleString()} 토큰 · 약 ${usd(cost)}</p>`);
+    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(lastModel)} · 노력 ${EFFORTS[effort].short}${toolCalls ? ` · 사전 조회 ${toolCalls}회` : ''} · 입력 ${inTok.toLocaleString()} · 출력 ${outTok.toLocaleString()} 토큰 · 약 ${usd(totalCost)}</p>`);
   } catch (err) {
     // 중지·끊김으로 받다 만 답도 요금이 나오므로, 받은 만큼(보이지 않는 생각 토큰은 어림) 사용액에 더한다.
     const partialMsg = stream?.currentMessage;
-    if (partialMsg) charge({ model: partialMsg.model, usage: { ...partialMsg.usage, output_tokens: Math.max(partialMsg.usage.output_tokens, text.length) } });
-    rollback(); // 실패한 질문은 대화 기록에서 뺀다
-    const partial = text ? renderMarkdown(text) : '';
+    const partialText = segments.map((sg) => sg.text || '').join('');
+    if (partialMsg) charge({ model: partialMsg.model, usage: { ...partialMsg.usage, output_tokens: Math.max(partialMsg.usage.output_tokens, partialText.length) } });
+    rollback();
     bubble.classList.add('error');
-    bubble.innerHTML = partial + `<p class="meta">${esc(errorMessage(err))}</p>`;
+    render();
+    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(errorMessage(err))}</p>`);
     if (err instanceof Anthropic.AuthenticationError) showSetup(true, errorMessage(err));
   } finally {
     chat.stream = null;
