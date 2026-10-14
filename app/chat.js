@@ -332,7 +332,7 @@ function open(wordId) {
   if (wordId !== undefined && wordId !== chat.wordId) { chat.wordId = wordId; resetConversation(); }
   else if (!log.childElementCount) resetConversation();
   if (!dlg.open) {
-    document.documentElement.classList.add('chat-lock'); // 뒤 화면이 같이 스크롤되지 않게
+    if (isPhone()) enterChatMode();
     dlg.showModal();
     fitToViewport();
   }
@@ -535,19 +535,52 @@ $('#chat-new').addEventListener('click', () => resetConversation());
 $('#chat-settings').addEventListener('click', () => showSetup(setup.hidden));
 dlg.addEventListener('close', () => {
   if (chat.stream) chat.stream.abort();
-  document.documentElement.classList.remove('chat-lock');
+  exitChatMode();
 });
 
-// ── 휴대폰 키보드 대응 ────────────────────────────────────
-// iOS 사파리는 키보드가 올라와도 100dvh를 줄이지 않고 화면을 밀어 올린다. 그러면 대화창 아래로 뒤 화면이
-// 비쳐 보이므로, 실제로 보이는 영역(visualViewport)의 위치와 높이에 대화창을 맞춘다.
+// ── 휴대폰: 대화 화면 모드 ─────────────────────────────────
+// 휴대폰에서는 대화창을 사전 화면 위에 띄우지 않고 사전 화면을 숨긴 채 전체 화면으로 쓴다.
+// iOS는 키보드가 올라오면 문서를 밀어 올려, 겹쳐 띄운 창 뒤로 사전 화면이 비치고 창이 흔들렸다.
+// 그래서 (1) 사전 화면을 그리지 않고 (2) body를 고정해 문서가 움직이지 않게 하고
+// (3) 대화창 높이만 보이는 영역(visualViewport)에 맞춘다. 위치는 쫓아가지 않고 밀려 올라가면 되돌린다.
 const vv = window.visualViewport;
+const root = document.documentElement;
+const isPhone = () => matchMedia('(max-width: 699px)').matches;
+let savedScrollY = 0;
+
+function enterChatMode() {
+  savedScrollY = window.scrollY;
+  root.classList.add('chat-mode');
+  Object.assign(document.body.style, { position: 'fixed', top: `-${savedScrollY}px`, left: '0', right: '0' });
+  document.addEventListener('touchmove', blockStrayTouch, { passive: false });
+}
+function exitChatMode() {
+  if (!root.classList.contains('chat-mode')) return;
+  root.classList.remove('chat-mode');
+  Object.assign(document.body.style, { position: '', top: '', left: '', right: '' });
+  document.removeEventListener('touchmove', blockStrayTouch);
+  window.scrollTo(0, savedScrollY);
+}
+
+/** 스크롤할 내용이 있는 곳(대화 기록·설정·입력창) 밖에서 끄는 손가락은 화면 전체를 끌지 못하게 막는다. */
+function blockStrayTouch(e) {
+  const area = e.target.closest?.('#chat-log, #chat-setup, #chat-text');
+  if (area && area.scrollHeight > area.clientHeight) return;
+  e.preventDefault();
+}
+
+let fitQueued = false;
 function fitToViewport() {
-  if (!vv || !dlg.open) return;
-  dlg.style.setProperty('--vv-top', `${vv.offsetTop}px`);
-  dlg.style.setProperty('--vv-height', `${vv.height}px`);
-  dlg.classList.toggle('kb', window.innerHeight - vv.height > 120);
-  if (document.activeElement === input) log.scrollTop = log.scrollHeight;
+  if (!vv || !dlg.open || fitQueued) return;
+  fitQueued = true;
+  requestAnimationFrame(() => {
+    fitQueued = false;
+    dlg.style.setProperty('--vv-height', `${vv.height}px`);
+    dlg.classList.toggle('kb', root.clientHeight - vv.height > 120);
+    // iOS가 입력창을 보이려고 화면을 밀어 올렸으면 되돌린다(대화창은 이미 보이는 높이에 맞춰져 있다).
+    if (root.classList.contains('chat-mode') && vv.offsetTop > 0) window.scrollTo(0, 0);
+    if (document.activeElement === input) log.scrollTop = log.scrollHeight;
+  });
 }
 if (vv) {
   vv.addEventListener('resize', fitToViewport);
