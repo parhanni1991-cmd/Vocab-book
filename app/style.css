@@ -167,15 +167,19 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 }
 @media (prefers-color-scheme: dark) { .fab { color: #1c1a17; } }
 .list { padding-bottom: 80px; }
+/* 휴대폰: 화면에 실제로 보이는 영역(키보드 제외)에 꽉 맞춘다. --vv-top/--vv-height는 chat.js가 visualViewport로 채운다. */
 .chat {
-  width: 100%; max-width: 760px; height: 100dvh; max-height: 100dvh; margin: 0 auto; padding: 0;
+  position: fixed; inset: var(--vv-top, 0px) 0 auto 0;
+  width: 100%; max-width: 760px; height: var(--vv-height, 100dvh); max-height: none; margin: 0 auto; padding: 0;
   border: 0; background: var(--bg); color: var(--text);
-  display: none; flex-direction: column;
+  display: none; flex-direction: column; overflow: hidden;
 }
 .chat[open] { display: flex; }
+.chat.kb .chat-form { padding-bottom: 10px; } /* 키보드가 열리면 홈 표시줄 여백은 필요 없다 */
 @media (min-width: 700px) {
-  .chat { height: min(86dvh, 820px); margin: auto; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgb(0 0 0 / .25); }
+  .chat { inset: 0; height: min(86dvh, 820px); margin: auto; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgb(0 0 0 / .25); }
 }
+html.chat-lock, html.chat-lock body { overflow: hidden; }
 .chat::backdrop { background: rgb(0 0 0 / .35); }
 .chat-head {
   display: flex; align-items: center; gap: 4px;

@@ -331,7 +331,11 @@ function open(wordId) {
   if (!vocab()) return;
   if (wordId !== undefined && wordId !== chat.wordId) { chat.wordId = wordId; resetConversation(); }
   else if (!log.childElementCount) resetConversation();
-  if (!dlg.open) dlg.showModal();
+  if (!dlg.open) {
+    document.documentElement.classList.add('chat-lock'); // 뒤 화면이 같이 스크롤되지 않게
+    dlg.showModal();
+    fitToViewport();
+  }
   if (!store.get(LS.key)) showSetup(true);
   else { showSetup(false); input.focus(); }
 }
@@ -529,7 +533,26 @@ $('#chat-fab').addEventListener('click', () => open());
 $('#chat-close').addEventListener('click', () => dlg.close());
 $('#chat-new').addEventListener('click', () => resetConversation());
 $('#chat-settings').addEventListener('click', () => showSetup(setup.hidden));
-dlg.addEventListener('close', () => { if (chat.stream) chat.stream.abort(); });
+dlg.addEventListener('close', () => {
+  if (chat.stream) chat.stream.abort();
+  document.documentElement.classList.remove('chat-lock');
+});
+
+// ── 휴대폰 키보드 대응 ────────────────────────────────────
+// iOS 사파리는 키보드가 올라와도 100dvh를 줄이지 않고 화면을 밀어 올린다. 그러면 대화창 아래로 뒤 화면이
+// 비쳐 보이므로, 실제로 보이는 영역(visualViewport)의 위치와 높이에 대화창을 맞춘다.
+const vv = window.visualViewport;
+function fitToViewport() {
+  if (!vv || !dlg.open) return;
+  dlg.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+  dlg.style.setProperty('--vv-height', `${vv.height}px`);
+  dlg.classList.toggle('kb', window.innerHeight - vv.height > 120);
+  if (document.activeElement === input) log.scrollTop = log.scrollHeight;
+}
+if (vv) {
+  vv.addEventListener('resize', fitToViewport);
+  vv.addEventListener('scroll', fitToViewport);
+}
 
 $('#chat-form').addEventListener('submit', (e) => {
   e.preventDefault();
