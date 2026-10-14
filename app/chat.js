@@ -6,6 +6,7 @@ const MODELS = {
   'claude-opus-5-5': 'Claude Opus 5.5 — 깊이 있는 답 (기본)',
   'claude-haiku-5-5': 'Claude Haiku 5.5 — 빠르고 저렴',
 };
+const MODEL_SHORT = { 'claude-opus-5-5': 'Opus 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
 const DEFAULT_MODEL = 'claude-opus-5-5';
 // 노력 수준: 생각의 깊이와 토큰 사용량을 정한다. 생각에 쓴 토큰도 출력 요금에 포함된다.
 const EFFORTS = {
@@ -15,6 +16,7 @@ const EFFORTS = {
 };
 const DEFAULT_EFFORT = 'low';
 const LS = { key: 'vocab.apiKey', model: 'vocab.model', effort: 'vocab.effort', limit: 'vocab.limit', spend: 'vocab.spend' };
+const currentModel = () => { const m = store.get(LS.model); return Object.hasOwn(MODELS, m ?? '') ? m : DEFAULT_MODEL; };
 const currentEffort = () => { const e = store.get(LS.effort); return Object.hasOwn(EFFORTS, e ?? "") ? e : DEFAULT_EFFORT; };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -259,7 +261,42 @@ const setup = $('#chat-setup');
 function wordLabel(w) { return `${w.word}${w.hanja ? `(${w.hanja})` : ''}`; }
 function currentWord() { return chat.wordId ? vocab().words.find((w) => w.id === chat.wordId) : null; }
 
+// ── 상단 모델·노력 배지와 빠른 선택 메뉴 ───────────────────
+const modeBtn = $('#chat-mode-btn');
+const modeMenu = $('#chat-mode-menu');
+// 선택 버튼은 한 번만 만들고, 고를 때는 선택 표시만 바꾼다(다시 그리면 누른 버튼이 사라져 바깥 클릭으로 오인된다).
+const seg = (items, kind) => items.map(([id, label]) =>
+  `<button type="button" role="radio" data-${kind}="${id}">${esc(label)}</button>`).join('');
+$('#mode-models').innerHTML = seg(Object.entries(MODEL_SHORT), 'model');
+$('#mode-efforts').innerHTML = seg(Object.entries(EFFORTS).map(([id, e]) => [id, e.short]), 'effort');
+function renderModeBadge() {
+  const model = currentModel(), effort = currentEffort();
+  modeBtn.textContent = `${MODEL_SHORT[model]} · 노력 ${EFFORTS[effort].short} ▾`;
+  modeMenu.querySelectorAll('[data-model], [data-effort]').forEach((b) => {
+    const on = b.dataset.model ? b.dataset.model === model : b.dataset.effort === effort;
+    b.setAttribute('aria-checked', String(on));
+    b.setAttribute('aria-selected', String(on));
+  });
+}
+function toggleModeMenu(show = modeMenu.hidden) {
+  modeMenu.hidden = !show;
+  modeBtn.setAttribute('aria-expanded', String(show));
+}
+modeBtn.addEventListener('click', () => toggleModeMenu());
+modeMenu.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-model], [data-effort]');
+  if (!b) return;
+  if (b.dataset.model) store.set(LS.model, b.dataset.model);
+  if (b.dataset.effort) store.set(LS.effort, b.dataset.effort);
+  renderModeBadge();
+});
+// 메뉴 바깥을 누르면 닫는다.
+document.addEventListener('click', (e) => {
+  if (!modeMenu.hidden && !e.target.closest('.chat-bar')) toggleModeMenu(false);
+});
+
 function renderHeader() {
+  renderModeBadge();
   const w = currentWord();
   $('#chat-context').textContent = `${w ? wordLabel(w) : '사전 전체'} · ${usageText()}`;
 }
@@ -306,7 +343,7 @@ function showSetup(show, message = '') {
   quick.hidden = show || chat.history.length > 0;
   if (show) {
     $('#chat-key').value = store.get(LS.key) || '';
-    $('#chat-model').value = store.get(LS.model) || DEFAULT_MODEL;
+    $('#chat-model').value = currentModel();
     $('#chat-effort').value = currentEffort();
     const lim = monthlyLimit();
     $('#chat-limit').value = Number.isFinite(lim) ? lim : '';
@@ -381,7 +418,7 @@ async function ask(question) {
   const bubble = addBubble('assistant', '<p class="thinking">생각하는 중…</p>');
   setBusy(true);
 
-  const model = store.get(LS.model) || DEFAULT_MODEL;
+  const model = currentModel();
   const effort = currentEffort();
   const lim = monthlyLimit();
 
@@ -532,7 +569,12 @@ document.addEventListener('click', (e) => {
 $('#chat-fab').addEventListener('click', () => open());
 $('#chat-close').addEventListener('click', () => dlg.close());
 $('#chat-new').addEventListener('click', () => resetConversation());
-$('#chat-settings').addEventListener('click', () => showSetup(setup.hidden));
+$('#chat-settings').addEventListener('click', () => { toggleModeMenu(false); showSetup(setup.hidden); });
+// Esc: 메뉴가 열려 있으면 대화창은 두고 메뉴만 닫는다(대화창이 닫히기 전에 키를 먼저 가로챈다).
+dlg.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !modeMenu.hidden) { e.preventDefault(); e.stopPropagation(); toggleModeMenu(false); modeBtn.focus(); }
+}, true);
+dlg.addEventListener('cancel', (e) => { if (!modeMenu.hidden) { e.preventDefault(); toggleModeMenu(false); } });
 dlg.addEventListener('close', () => {
   if (chat.stream) chat.stream.abort();
   exitChatMode();

@@ -55,6 +55,20 @@
       <button id="chat-settings" type="button" class="icon" title="설정" aria-label="설정">⚙</button>
       <button id="chat-close" type="button" class="icon" title="닫기" aria-label="닫기">✕</button>
     </div>
+    <div class="chat-bar">
+      <button id="chat-mode-btn" type="button" class="mode-btn" aria-haspopup="true" aria-expanded="false" aria-controls="chat-mode-menu"></button>
+      <div id="chat-mode-menu" class="mode-menu" hidden>
+        <div class="mode-row">
+          <span class="mode-label" id="mode-model-label">모델</span>
+          <div class="seg mode-seg" role="radiogroup" aria-labelledby="mode-model-label" id="mode-models"></div>
+        </div>
+        <div class="mode-row">
+          <span class="mode-label" id="mode-effort-label">노력</span>
+          <div class="seg mode-seg" role="radiogroup" aria-labelledby="mode-effort-label" id="mode-efforts"></div>
+        </div>
+        <p class="mode-hint">노력이 높을수록 깊이 생각하지만 느리고 비쌉니다. 다음 질문부터 적용됩니다.</p>
+      </div>
+    </div>
 
     <section id="chat-setup" class="chat-setup" hidden>
       <form id="chat-setup-form">
