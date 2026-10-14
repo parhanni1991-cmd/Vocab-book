@@ -7,7 +7,15 @@ const MODELS = {
   'claude-haiku-5-5': 'Claude Haiku 5.5 — 빠르고 저렴',
 };
 const DEFAULT_MODEL = 'claude-opus-5-5';
-const LS = { key: 'vocab.apiKey', model: 'vocab.model' };
+// 노력 수준: 생각의 깊이와 토큰 사용량을 정한다. 생각에 쓴 토큰도 출력 요금에 포함된다.
+const EFFORTS = {
+  low: { label: '낮음 — 빠르고 저렴 (기본)', short: '낮음' },
+  medium: { label: '보통 — 균형', short: '보통' },
+  high: { label: '높음 — 깊이 생각, 느리고 비쌈', short: '높음' },
+};
+const DEFAULT_EFFORT = 'low';
+const LS = { key: 'vocab.apiKey', model: 'vocab.model', effort: 'vocab.effort' };
+const currentEffort = () => { const e = store.get(LS.effort); return Object.hasOwn(EFFORTS, e ?? "") ? e : DEFAULT_EFFORT; };
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -155,6 +163,7 @@ function showSetup(show, message = '') {
   if (show) {
     $('#chat-key').value = store.get(LS.key) || '';
     $('#chat-model').value = store.get(LS.model) || DEFAULT_MODEL;
+    $('#chat-effort').value = currentEffort();
     $('#chat-forget').hidden = !store.get(LS.key);
     $('#chat-key').focus();
   }
@@ -220,12 +229,13 @@ async function ask(question) {
   setBusy(true);
 
   const model = store.get(LS.model) || DEFAULT_MODEL;
+  const effort = currentEffort();
   const params = {
     model,
     max_tokens: 8000,
     system: [{ type: 'text', text: systemPrompt(), cache_control: { type: 'ephemeral' } }],
     messages: chat.history,
-    output_config: { effort: 'low' },
+    output_config: { effort },
   };
   if (model === 'claude-opus-5-5') {
     // 안전 분류기가 거절하면 서버가 권장 모델로 다시 시도한다.
@@ -259,7 +269,7 @@ async function ask(question) {
     if (msg.stop_reason === 'max_tokens') bubble.insertAdjacentHTML('beforeend', '<p class="meta">답이 길어 중간에 끊겼습니다. "계속"이라고 보내면 이어서 씁니다.</p>');
     const u = msg.usage;
     const inTok = u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(msg.model)} · 입력 ${inTok.toLocaleString()} · 출력 ${u.output_tokens.toLocaleString()} 토큰</p>`);
+    bubble.insertAdjacentHTML('beforeend', `<p class="meta">${esc(msg.model)} · 노력 ${EFFORTS[effort].short} · 입력 ${inTok.toLocaleString()} · 출력 ${u.output_tokens.toLocaleString()} 토큰</p>`);
   } catch (err) {
     rollback(); // 실패한 질문은 대화 기록에서 뺀다
     const partial = text ? renderMarkdown(text) : '';
@@ -277,6 +287,7 @@ async function ask(question) {
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; }
 
 $('#chat-model').innerHTML = Object.entries(MODELS).map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join('');
+$('#chat-effort').innerHTML = Object.entries(EFFORTS).map(([id, e]) => `<option value="${id}">${esc(e.label)}</option>`).join('');
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
@@ -308,6 +319,7 @@ $('#chat-setup-form').addEventListener('submit', (e) => {
   if (!key) { $('#chat-key').focus(); return; }
   store.set(LS.key, key);
   store.set(LS.model, $('#chat-model').value);
+  store.set(LS.effort, $('#chat-effort').value);
   showSetup(false);
   input.focus();
 });
